@@ -49,25 +49,25 @@ INFO="[ MyArchScript - Info ] "
 UEFI_PART="/dev/sda1"
 FORMAT_UEFI="false"
 
-ENCRYPTION="none"                       # "none" or "lvm"
+ENCRYPTION="none" # "none" or "lvm"
 
 # Then you should fill your choices accordingly :
-if [ "$ENCRYPTION" == "none" ] ; then
-    ROOT_PART="sda2"                    # Part. name ("sdxy")
-    SWAP_PART="sda3"                    # Part. name ("sdxy"), "file" or "none"
-elif [ "$ENCRYPTION" == "lvm" ] ; then
-    LVM_ENCRYPTED_PART="sda2"           # Part. name ("sdxy")
-    LVM_DECRYPTED_MAPPER="cryptlvm"     # Mapper name (e.g. "cryptlvm")
-    VOLUME_GROUP="VolumeGroup"          # It's not necessary to change this one
-    ROOT_VOLUME="root"                  # LVM volume name, "file" or "none"
-    ROOT_VOLUME_SIZE="51G"              # Size of Root Volume, in G
-    SWAP_VOLUME="swap"                  # LVM volume name, "file" or "none"
-    if [ ! "$SWAP_VOLUME" = "file" ] ; then
+if [ "$ENCRYPTION" == "none" ]; then
+    ROOT_PART="sda2" # Part. name ("sdxy")
+    SWAP_PART="sda3" # Part. name ("sdxy"), "file" or "none"
+elif [ "$ENCRYPTION" == "lvm" ]; then
+    LVM_ENCRYPTED_PART="sda2"       # Part. name ("sdxy")
+    LVM_DECRYPTED_MAPPER="cryptlvm" # Mapper name (e.g. "cryptlvm")
+    VOLUME_GROUP="VolumeGroup"      # It's not necessary to change this one
+    ROOT_VOLUME="root"              # LVM volume name, "file" or "none"
+    ROOT_VOLUME_SIZE="51G"          # Size of Root Volume, in G
+    SWAP_VOLUME="swap"              # LVM volume name, "file" or "none"
+    if [ ! "$SWAP_VOLUME" = "file" ]; then
         SWAP_VOLUME_SIZE="4G"
     fi
 fi
 
-if [ "$SWAP_PART" == "file" ] || [ "$SWAP_VOLUME" == "file" ] ; then
+if [ "$SWAP_PART" == "file" ] || [ "$SWAP_VOLUME" == "file" ]; then
     SWAP_FILE_SIZE="4G"
 fi
 
@@ -93,54 +93,52 @@ LONG_NAME="Long name of user"
 
 #################################  FUCTIONS  ################################
 
-function setup()
-{
+function setup() {
     ########## CONFIGURATION OF INSTALLER ##########
     echo "$INFO Starting the installer ..."
-    
+
     # Set up strict script mode :
     # Exit on error.
     set -o errexit # Append "|| true" to override.
     # Exit on error inside any functions or subshells.
     set -o errtrace
     # Do not allow use of undefined vars.
-    set -o nounset  # Use ${VAR:-} to override.
+    set -o nounset # Use ${VAR:-} to override.
     # Catch the first error in chained programs with "|"
     set -o pipefail
     # Turn on traces for debug
     # set -o xtrace
-    
+
+    install="pacman -S --noconfirm"
 }
 
-function verify()
-{
+function verify() {
     ########## VERIFY CONFIGURATION ##########
     echo "$INFO Verifying your configuration ..."
 
     # At the moment, BIOS isn't supported. If you wan't this support,
     # don't hesitate to open an Issue on github. If the user is in bios, exit:
-    if ! [ -d "/sys/firmware/efi/efivars" ] ; then
+    if ! [ -d "/sys/firmware/efi/efivars" ]; then
         echo "$ERROR You're booting in bios and this isn't yet supported."
         exit 1
     fi
-    
-    if [ $ENCRYPTION != "none" ] && [ $ENCRYPTION != "lvm" ] ; then
+
+    if [ $ENCRYPTION != "none" ] && [ $ENCRYPTION != "lvm" ]; then
         echo "$ERROR The ENCRYPTION variable is incorrectly configured."
         exit 1
     fi
 }
 
-function disksetup()
-{
+function disksetup() {
     echo "$INFO Configuring disks ..."
-    if [ "$ENCRYPTION" == "none" ] ; then
+    if [ "$ENCRYPTION" == "none" ]; then
         mkfs.ext4 "/dev/$ROOT_PART"
         mount "/dev/$ROOT_PART" /mnt
-        if [ ! "$SWAP_PART" == "file" ] ; then
+        if [ ! "$SWAP_PART" == "file" ]; then
             mkswap "/dev/$SWAP_PART"
             swapon "/dev/$SWAP_PART"
         fi
-        elif [ "$ENCRYPTION" == "lvm" ] ; then
+    elif [ "$ENCRYPTION" == "lvm" ]; then
         cryptsetup -y -v luksFormat --type luks2 "/dev/$LVM_ENCRYPTED_PART"
         cryptsetup open "/dev/$LVM_ENCRYPTED_PART" "$LVM_DECRYPTED_MAPPER" --allow-discards
         pvcreate "/dev/mapper/$LVM_DECRYPTED_MAPPER"
@@ -148,46 +146,43 @@ function disksetup()
         lvcreate -L $ROOT_VOLUME_SIZE $VOLUME_GROUP -n $ROOT_VOLUME
         mkfs.ext4 "/dev/$VOLUME_GROUP/$ROOT_VOLUME"
         mount "/dev/$VOLUME_GROUP/$ROOT_VOLUME" /mnt
-        if [ ! "$SWAP_VOLUME" == "file" ] ; then
+        if [ ! "$SWAP_VOLUME" == "file" ]; then
             lvcreate -L $SWAP_VOLUME_SIZE $VOLUME_GROUP -n $SWAP_VOLUME
             mkswap "/dev/$VOLUME_GROUP/$SWAP_VOLUME"
             swapon "/dev/$VOLUME_GROUP/$SWAP_VOLUME"
         fi
     fi
-    
-    if [ ! $SWAP_PART = "file" ] || [ ! $SWAP_VOLUME = "file" ] ; then
+
+    if [ ! $SWAP_PART = "file" ] || [ ! $SWAP_VOLUME = "file" ]; then
         fallocate -l $SWAP_FILE_SIZE /mnt/swapfile
         chmod 600 /mnt/swapfile
         mkswap /mnt/swapfile
         swapon /mnt/swapfile
     fi
-    
-    if $FORMAT_UEFI ; then
+
+    if $FORMAT_UEFI; then
         mkfs.vfat -F32 $UEFI_PART
     fi
     mkdir /mnt/boot
     mount $UEFI_PART /mnt/boot
 }
 
-function basestrap()
-{
+function basestrap() {
     ########## STRAP BASE ##########
 
     # Install base
     echo "$INFO Strapping base and base-devel ..."
-    pacstrap /mnt {base,base-devel}
-    
+    pacstrap /mnt base base-devel
 }
 
-function genconffiles()
-{
+function genconffiles() {
     ########## CONFIGURATION FILES ##########
     echo "$INFO Generating configuration files ..."
 
     # Set hostname
     echo "* hostname ..."
-    echo $HOSTNAME>/mnt/etc/hostname
-    cat > /mnt/etc/hosts << EOF
+    echo $HOSTNAME >/mnt/etc/hostname
+    cat >/mnt/etc/hosts <<EOF
 # Static table lookup for hostnames.
 # See hosts(5) for details.
 127.0.0.1	$HOSTNAME
@@ -195,16 +190,16 @@ function genconffiles()
 ::1         $HOSTNAME
 ::1         localhost
 EOF
-    
+
     # Set locales
     echo "* vconsole.conf ..."
-    cat > /mnt/etc/vconsole.conf <<EOF
+    cat >/mnt/etc/vconsole.conf <<EOF
 KEYMAP=$CONSOLE_KEYMAP
 FONT=$CONSOLE_FONT
 EOF
-    
+
     echo "* locale.conf ..."
-    cat > /mnt/etc/locale.conf << EOF
+    cat >/mnt/etc/locale.conf <<EOF
 # Language choosen by default
 LANG="$LANGUAGE_CODE.UTF-8"
 # Prefer english to default language if no translation
@@ -216,23 +211,23 @@ EOF
     echo "* locale.gen ..."
     sed -si "s/^#$LANGUAGE_CODE/$LANGUAGE_CODE/; \
     s/^#en_US/en_US/;" /mnt/etc/locale.gen
-    
+
     # Generate fstab
     echo "* fstab ..."
-    genfstab -U -p /mnt >> /mnt/etc/fstab
-    
-    if [ $SWAP_PART = "file" ] || [ $SWAP_VOLUME = "file" ] ; then
+    genfstab -U -p /mnt >>/mnt/etc/fstab
+
+    if [ $SWAP_PART = "file" ] || [ $SWAP_VOLUME = "file" ]; then
         # Fix swapfile bad mounted in fstab
         sed -i 's/\/mnt\/swapfile/\/swapfile/' /etc/fstab
     fi
-    
+
     # Optimize default settings of pacman
     echo "* Optimizing pacman default settings ..."
     sed -i 's/#Color/Color/' /mnt/etc/pacman.conf
     sed -i 's/#TotalDownload/TotalDownload/' /mnt/etc/pacman.conf
 
     echo "$INFO Entering chroot to finish generation of configuration files ..."
-    arch-chroot /mnt << EOF
+    arch-chroot /mnt <<EOF
     
     # Generation of locales
     echo "* Generating locales ..."
@@ -245,7 +240,7 @@ EOF
     
     # Backuping the old mirrorlist and actualizing the new one
     echo "* Getting better mirrors for pacman ..."
-    pacman -S --noconfirm reflector
+    $install reflector
     cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.old
     reflector --age 48 --sort rate --save /etc/pacman.d/mirrorlist
 
@@ -271,54 +266,53 @@ EOF
 EOF
 }
 
-function plusinstall()
-{
+function plusinstall() {
     ########## ADDITIONALS & DRIVERS FILES ##########
     echo "$INFO Entering chroot to install additional packages and drivers ..."
-    arch-chroot /mnt << EOF
+    arch-chroot /mnt <<EOF
 
     echo "$INFO Installing additionals tools ..."
 
     # Install usefull packages
     echo "* Installing usefull packages ..."
-    pacman -S --noconfirm mtools intel-ucode lsb-release                    # System tools
-    pacman -S --noconfirm dosfstools ntfs-3g exfat-utils                    # Usefull FS drivers
-    pacman -S --noconfirm git mc                                            # Personnal cli tools
+    $install mtools intel-ucode lsb-release                    # System tools
+    $install dosfstools ntfs-3g exfat-utils                    # Usefull FS drivers
+    $install git mc nmap neovim htop wget                      # Personnal cli tools
 
     echo "* Installing and enabling networkmanager ..."
-    pacman -S --noconfirm networkmanager
+    $install networkmanager
     systemctl enable NetworkManager
 
     echo "* Installing and enabling ntp ..."
-    pacman -S --noconfirm ntp
+    $install ntp
     systemctl enable ntpd
 
     # Fonts
     echo "* Installing fonts ..."
-    pacman -S --noconfirm ttf-{bitstream-vera,liberation,freefont,dejavu}
+    $install ttf-{bitstream-vera,liberation,freefont,dejavu}
 
     echo "$INFO Installing drivers ..."
     
     # Video codec
     echo "* Installing video codecs ..."
-    pacman -S --noconfirm gst-plugins-{base,good,bad,ugly} gst-libav
+    $install gst-plugins-{base,good,bad,ugly} gst-libav
     
     # Xorg peripherals drivers
     echo "* Installing Xorg peripherals drivers ..."
     #TODO : Autodetect if laptop or desktop (or VM)
-    pacman -S --noconfirm xf86-input-{mouse,keyboard,libinput} xdg-user-dirs
+    $install xf86-input-{mouse,keyboard,libinput} xdg-user-dirs
     
     # Xorg peripherals drivers
     echo "* Installing graphical drivers ..."
     # According to gpu, install xorg, openGL, HW video and Vulkan driver (if disponibles)
     if [ $GPU_BRAND = 'intel' ] ; then
-        pacman -S --noconfirm xf86-video-intel mesa libva-mesa-driver libvdpau-va-gl vulkan-intel
+        $install xf86-video-intel mesa libva-mesa-driver libvdpau-va-gl vulkan-intel
         elif [ $GPU_BRAND = 'nvidia' ] ; then
-        pacman -S --noconfirm xf86-video-nouveau mesa mesa-vdpau
+        $install xf86-video-nouveau mesa mesa-vdpau
         elif [ $GPU_BRAND = 'oldamd' ] ; then
-        pacman -S --noconfirm xf86-video-ati mesa mesa-vdpau
+        $install xf86-video-ati mesa mesa-vdpau
         elif [ $GPU_BRAND = 'newamd' ] ; then
-        pacman -S --noconfirm xf86-video-amdgpu mesa mesa-vdpau vulkan-radeon
+        $install xf86-video-amdgpu mesa mesa-vdpau vulkan-radeon
     fi
     # Many optimizations are disponible according to your gpu, don't hesitate to look further :
     # https://wiki.archlinux.org/index.php/Intel_graphics
@@ -330,15 +324,14 @@ function plusinstall()
 EOF
 }
 
-function bootloaderinstall()
-{
+function bootloaderinstall() {
     ########## BOOTLOADER ##########
     echo "$INFO Entering chroot to install bootloader ..."
     arch-chroot /mnt << EOF
 
     # Installing general tools
     echo "* Installing UEFI tools ..."
-    pacman -S --noconfirm os-prober efibootmgr                              # EFI Tools
+    $install os-prober efibootmgr                              # EFI Tools
 
     # Installing bootloader
     echo "* Preparing variables ..."
@@ -351,7 +344,7 @@ function bootloaderinstall()
 
     if [ $BOOTLOADER = "grub" ] ; then
         echo "* Installing grub ..."
-        pacman -S --noconfirm grub
+        $install grub
         grub-mkconfig -o /boot/grub/grub.cfg
         grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=Grub_Archlinux --recheck
         if [ "$ENCRYPTION" == "lvm" ] ; then
@@ -359,7 +352,7 @@ function bootloaderinstall()
         fi
     elif [ $BOOTLOADER = "refind" ] ; then
         echo "* Installing refind ..."
-        pacman -S --noconfirm refind-efi
+        $install refind-efi
         refind-install
         if [ "$ENCRYPTION" == "none" ] ; then
             cat >> /boot/EFI/refind/refind.conf << EOF2
@@ -391,6 +384,47 @@ EOF2
 EOF
 }
 
+function gnomeinstall() {
+    # Install packages
+    $install gnome
+    $install gnome-tweaks gnome-sound-recorder nautilus-sendto gnome-weather gnomes-recipe gnome-usage
+
+    # Tweaks
+    gsettings set org.gnome.desktop.peripherals.touchpad click-method 'areas'
+    gsettings set org.gnome.desktop.wm.preferences button-layout ':minimize,maximize,close'
+
+    # Useless packages removal
+    pacman -Rsc --noconfirm yelp gnome-logs gnome-system-monitor gnome-todo gnome-getting-started-docs orca rygel vino
+
+    # Basic setup
+    sudo localectl set-x11-keymap fr
+    systemctl enable gdm
+    systemctl enable avahi-daemon
+    systemctl enable avahi-dnsconfd
+}
+
+function addonsinstall() {
+    # Install a real browser
+    pacman -Rsc --noconfirm epiphany
+    $install firefox
+
+    # Install office tools
+    $install "libreoffice-fresh-$LANGUAGE_CODE" unoconv cups
+    systemctl enable org.cups.cupsd
+
+    # Install cli tools
+    $install htop nmap mc
+
+    # Install dev tools
+    $install nmap neovim shellcheck # CLI
+    $install code                   # GUI
+
+    # Install an AUR wrapper
+    cd /tmp
+    git clone https://aur.archlinux.org/pikaur.git && cd pikaur/
+    makepkg -si
+}
+
 #################################  MAIN  ################################
 
 setup
@@ -406,3 +440,7 @@ genconffiles
 plusinstall
 
 bootloaderinstall
+
+gnomeinstall
+
+addonsinstall
